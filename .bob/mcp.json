@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "impactproof": {
+      "command": "node",
+      "args": ["/home/mri/Documents/impactproof/mcp-server/build/index.js"]
+    }
+  }
+}

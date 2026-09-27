@@ -1,0 +1,20 @@
+{
+  "name": "impactproof-mcp-server",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc && chmod 755 build/index.js build/readonly_index.js && cp src/analyze.py build/analyze.py && cp src/regression_tools.py build/regression_tools.py"
+  },
+  "bin": {
+    "impactproof-mcp-server": "./build/index.js"
+  },
+  "files": ["build"],
+  "dependencies": {
+    "@modelcontextprotocol/server": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "typescript": "latest"
+  }
+}

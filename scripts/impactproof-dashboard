@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Load a local Bob API key and launch the existing ImpactProof dashboard."""
+
+from __future__ import annotations
+
+import os
+import re
+import stat
+import sys
+import tempfile
+from pathlib import Path
+
+
+PRODUCT_ROOT = Path("/home/mri/Documents/impactproof")
+LAUNCHER = PRODUCT_ROOT / "graph" / "launch_graph.py"
+SECRET_FILE = Path.home() / ".config" / "impactproof" / "bob.env"
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+
+
+class LauncherError(Exception):
+    """Safe, user-facing launcher error with no secret material."""
+
+
+def read_api_key(secret_file: Path | None = None) -> str:
+    """Read only BOB_API_KEY from a private KEY=VALUE file."""
+    secret_file = SECRET_FILE if secret_file is None else secret_file
+    try:
+        info = secret_file.lstat()
+        if not stat.S_ISREG(info.st_mode):
+            raise LauncherError("Bob credentials must be a regular file.")
+        if hasattr(os, "getuid") and info.st_uid != os.getuid():
+            raise LauncherError("Bob credentials must be owned by the current user.")
+        if os.name == "posix" and stat.S_IMODE(info.st_mode) & 0o077:
+            raise LauncherError("Bob credentials must have user-only permissions.")
+        contents = secret_file.read_text(encoding="utf-8")
+    except LauncherError:
+        raise
+    except (OSError, UnicodeError):
+        raise LauncherError("Bob credentials are unavailable or unreadable.") from None
+
+    found: list[str] = []
+    for line in contents.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not _ASSIGNMENT.fullmatch(stripped):
+            raise LauncherError("Bob credentials file has invalid KEY=VALUE format.")
+        name, value = stripped.split("=", 1)
+        if name == "BOB_API_KEY":
+            found.append(value.strip())
+
+    if len(found) != 1 or not found[0]:
+        raise LauncherError("Bob credentials must contain one non-empty BOB_API_KEY.")
+    return found[0]
+
+
+def _arguments(argv: list[str]) -> tuple[str, str]:
+    if len(argv) != 3 or argv[1] != "--scenario":
+        raise LauncherError("Usage: impactproof-dashboard REPO_PATH --scenario SCENARIO")
+    repo = Path(argv[0]).expanduser()
+    if not repo.is_absolute() or not repo.is_dir():
+        raise LauncherError("Target repository must be an existing absolute directory.")
+    scenario = argv[2]
+    if not scenario or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for ch in scenario):
+        raise LauncherError("Scenario name is invalid.")
+    return str(repo.resolve()), scenario
+
+
+def main(argv: list[str] | None = None) -> int:
+    try:
+        repo, scenario = _arguments(list(sys.argv[1:] if argv is None else argv))
+        if not LAUNCHER.is_file():
+            raise LauncherError("ImpactProof dashboard launcher is unavailable.")
+        api_key = read_api_key()
+        fd, output_name = tempfile.mkstemp(prefix="impact-dashboard-", suffix=".html")
+        os.close(fd)
+        environment = os.environ.copy()
+        environment["BOB_API_KEY"] = api_key
+        command = [
+            sys.executable, str(LAUNCHER), repo,
+            "--scenario", scenario, "--out", output_name,
+        ]
+        os.execve(sys.executable, command, environment)
+    except LauncherError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    except OSError:
+        print("ImpactProof dashboard could not be started.", file=sys.stderr)
+        return 1
+    except Exception:
+        print("ImpactProof dashboard could not be started.", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
